@@ -789,6 +789,9 @@ class exporter(object):
             "stock.warehouse",
             fields=["name"],
         ):
+            # Added for Fulton: skip the service truck warehouses
+            if i["name"] and "service truck" in i["name"].lower():
+                continue
             if first:
                 yield "<!-- warehouses -->\n"
                 yield "<locations>\n"
@@ -1064,12 +1067,35 @@ class exporter(object):
         self.product_template_product = {}
         self.product_templates = {}
         self.routes = {
-            i["id"]: i for i in self.generator.getData("stock.route", fields=["name"])
+            i["id"]: i
+            for i in self.generator.getData(
+                "stock.route",
+                # Reading extra routing fields for Fulton
+                fields=[
+                    "name",
+                    "warehouse_ids",
+                    "display_name",
+                    "sequence",
+                    "rule_ids",
+                ],
+            )
         }
         self.route_mto = None
         for k, v in self.routes.items():
             if v["name"] == "Replenish on Order (MTO)":
                 self.route_mto = k
+            elif v["name"] != "Resupply Trucks":
+                # For Fulton we associate the route with a warehouse
+                for i in self.generator.getData(
+                    "stock.rule",
+                    ids=v["rule_ids"],
+                    fields=["location_src_id"],
+                ):
+                    if i["location_src_id"]:
+                        l = self.map_locations.get(i["location_src_id"][0], None)
+                        if l:
+                            v["warehouse"] = l
+                            break
         for i in self.generator.getData(
             "product.template",
             search=[("type", "not in", ("service", "consu"))],
@@ -1398,15 +1424,20 @@ class exporter(object):
                 "code",
             ],
         ):
-            # Determine the location
-            location = self.mfg_location
-
             product_template = self.product_templates.get(i["product_tmpl_id"][0], None)
             if not product_template:
                 continue
             uom_factor = self.convert_qty_uom(
                 1.0, i["product_uom_id"], i["product_tmpl_id"][0]
             )
+
+            # Determine the location
+            # Extra logic for fulton to use the routes to find the warehouse of the operation
+            location = self.mfg_location
+            for rt in product_template.get("route_ids", []):
+                if "warehouse" in rt:
+                    location = rt["warehouse"]
+                    break
 
             # Loop over all subcontractors
             if i["type"] == "subcontract":
