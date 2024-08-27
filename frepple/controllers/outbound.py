@@ -1163,6 +1163,7 @@ class exporter(object):
             tmp = self.generator.getData(
                 "product.supplierinfo",
                 fields=supplierinfo_fields,
+                search=[("product_tmpl_id", "!=", False)],
             )
         except Exception:
             # subcontracting module not installed
@@ -1170,6 +1171,7 @@ class exporter(object):
             tmp = self.generator.getData(
                 "product.supplierinfo",
                 fields=supplierinfo_fields,
+                search=[("product_tmpl_id", "!=", False)],
             )
         itemsuppliers = {}
         for i in tmp:
@@ -1435,8 +1437,9 @@ class exporter(object):
             # Extra logic for fulton to use the routes to find the warehouse of the operation
             location = self.mfg_location
             for rt in product_template.get("route_ids", []):
-                if "warehouse" in rt:
-                    location = rt["warehouse"]
+                route = self.routes.get(rt, None)
+                if route and "warehouse" in route:
+                    location = route["warehouse"]
                     break
 
             # Loop over all subcontractors
@@ -2135,7 +2138,7 @@ class exporter(object):
                 '<demand name=%s batch=%s quantity="%s" due="%s" priority="%s" minshipment="%s" status="%s"><item name=%s/><customer name=%s/><location name=%s/>'
                 # Disable the next line in frepple < 6.25
                 '<owner name=%s policy="%s" xsi:type="demand_group"/>'
-                '%s'  # Added for Fulton
+                "%s"  # Added for Fulton
                 "</demand>\n"
             ) % (
                 quoteattr(name),
