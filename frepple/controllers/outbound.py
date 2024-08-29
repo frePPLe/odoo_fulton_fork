@@ -1267,6 +1267,15 @@ class exporter(object):
                     else ""
                 ),
             )
+            # Added for Fulton
+            for rt_id in tmpl["route_ids"]:
+                rt = self.routes.get(rt_id, None)
+                if rt and rt["name"] != "Replenish on Order (MTO)":
+                    yield '<stringproperty name="route" value=%s/>' % quoteattr(
+                        rt["name"]
+                    )
+                    break
+
             # Export suppliers for the item, if the item is allowed to be purchased
             if tmpl["purchase_ok"]:
                 suppliers = {}
