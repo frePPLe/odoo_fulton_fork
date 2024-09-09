@@ -345,9 +345,10 @@ class exporter(object):
                     or None
                 )
                 self.mfg_location = (
-                    i["manufacturing_warehouse"]
-                    and i["manufacturing_warehouse"][1]
-                    or self.company
+                    # This id is later converted into the warehouse code (when we read the warehouses)
+                    i["manufacturing_warehouse"][0]
+                    if i["manufacturing_warehouse"]
+                    else self.company
                 )
             except Exception:
                 self.calendar = None
@@ -639,9 +640,8 @@ class exporter(object):
                     "resource_id",
                 ],
             ):
-                calendar_name = "%s %s" % (i["calendar_id"][1], i["calendar_id"][0])
-
                 if i["calendar_id"] and i["calendar_id"][0] in cal_ids:
+                    calendar_name = "%s %s" % (i["calendar_id"][1], i["calendar_id"][0])
                     if not i["resource_id"]:
                         if calendar_name not in calendars:
                             calendars[calendar_name] = []
@@ -671,6 +671,8 @@ class exporter(object):
                                     "calendar for %s"
                                     % (self.resources_with_specific_calendars[res],)
                                 ].append(i)
+                # else:
+                #    TODO   Handle company-wide leaves that apply to all calendars
 
             # Iterate over the results:
             for i in calendars:
@@ -787,7 +789,7 @@ class exporter(object):
         first = True
         for i in self.generator.getData(
             "stock.warehouse",
-            fields=["name"],
+            fields=["name", "code"],
         ):
             # Added for Fulton: skip the service truck warehouses
             if i["name"] and "service truck" in i["name"].lower():
@@ -796,20 +798,21 @@ class exporter(object):
                 yield "<!-- warehouses -->\n"
                 yield "<locations>\n"
                 first = False
-            if self.calendar:
-                yield '<location name=%s subcategory="%s"><available name=%s/></location>\n' % (
-                    quoteattr(i["name"]),
-                    i["id"],
-                    quoteattr(self.calendar),
-                )
-            else:
-                yield '<location name=%s subcategory="%s"></location>\n' % (
-                    quoteattr(i["name"]),
-                    i["id"],
-                )
-            self.warehouses[i["id"]] = i["name"]
+            yield '<location name=%s description=%s subcategory="%s">%s</location>\n' % (
+                quoteattr(i["code"]),
+                quoteattr(i["name"]),
+                i["id"],
+                (
+                    ("<available name=%s/>" % quoteattr(self.calendar))
+                    if self.calendar
+                    else ""
+                ),
+            )
+            self.warehouses[i["id"]] = i["code"] or i["name"]
         if not first:
             yield "</locations>\n"
+        if self.mfg_location and self.mfg_location in self.warehouses:
+            self.mfg_location = self.warehouses[self.mfg_location]
 
         # Populate a mapping location-to-warehouse name for later lookups
         loc_ids = [
@@ -1223,6 +1226,7 @@ class exporter(object):
                 "product_template_attribute_value_ids": i[
                     "product_template_attribute_value_ids"
                 ],
+                "code": i["code"],
             }
             self.product_product[i["id"]] = prod_obj
             self.product_template_product[i["product_tmpl_id"][0]] = prod_obj
@@ -1476,7 +1480,7 @@ class exporter(object):
                     # Build operation. The operation can either be a summary operation or a detailed
                     # routing.
                     operation = "%s @ %s %d" % (
-                        product_buf["name"],
+                        product_buf["code"] or product_buf["name"],
                         subcontractor.get("name", location),
                         i["id"],
                     )
