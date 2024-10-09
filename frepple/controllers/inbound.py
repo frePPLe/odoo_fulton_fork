@@ -626,8 +626,8 @@ class importer(object):
                             # This mapping is later used when importing WO.
                             mo_references[elem.get("reference")] = mo
                             mo._create_update_move_finished()
-                            # mo.action_confirm()  # confirm MO
-                            # mo._plan_workorders() # plan MO
+                            mo.action_confirm()  # confirm MO
+                            mo._plan_workorders()  # plan MO
                             # mo.action_assign() # reserve material
                             create = True
                         else:
