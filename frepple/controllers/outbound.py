@@ -234,10 +234,11 @@ class exporter(object):
     def run(self):
         # Check if we manage by work orders or manufacturing orders.
         self.manage_work_orders = False
-        for rec in self.generator.getData(
-            "ir.model", search=[("model", "=", "mrp.workorder")], fields=["name"]
-        ):
-            self.manage_work_orders = True
+        # Fulton will plan at the MO level only in frepple. Odoo schedules the work orders.
+        # for rec in self.generator.getData(
+        #     "ir.model", search=[("model", "=", "mrp.workorder")], fields=["name"]
+        # ):
+        #     self.manage_work_orders = True
 
         # Load some auxiliary data in memory
         self.load_company()
