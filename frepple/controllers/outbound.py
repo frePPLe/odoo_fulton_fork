@@ -1272,14 +1272,14 @@ class exporter(object):
                     else ""
                 ),
             )
-            # Added for Fulton
-            for rt_id in tmpl["route_ids"]:
-                rt = self.routes.get(rt_id, None)
-                if rt and rt["name"] != "Replenish on Order (MTO)":
-                    yield '<stringproperty name="route" value=%s/>' % quoteattr(
-                        rt["name"]
-                    )
-                    break
+            # # Added for Fulton
+            # for rt_id in tmpl["route_ids"]:
+            #     rt = self.routes.get(rt_id, None)
+            #     if rt and rt["name"] != "Replenish on Order (MTO)":
+            #         yield '<stringproperty name="route" value=%s/>' % quoteattr(
+            #             rt["name"]
+            #         )
+            #         break
 
             # Export suppliers for the item, if the item is allowed to be purchased
             if tmpl["purchase_ok"]:
@@ -1438,6 +1438,7 @@ class exporter(object):
                 "days_to_prepare_mo",
                 "sequence",
                 "code",
+                "picking_type_id",  # Extra Fulton
             ],
         ):
             product_template = self.product_templates.get(i["product_tmpl_id"][0], None)
@@ -1449,12 +1450,11 @@ class exporter(object):
 
             # Determine the location
             # Extra logic for fulton to use the routes to find the warehouse of the operation
-            location = self.mfg_location
-            for rt in product_template.get("route_ids", []):
-                route = self.routes.get(rt, None)
-                if route and "warehouse" in route:
-                    location = route["warehouse"]
-                    break
+            location = self.mfg_location            
+            if i["picking_type_id"]:
+                picking_type = self.operation_types.get(i["picking_type_id"][0], None)
+                if picking_type and picking_type["warehouse_id"]:
+                    location =  picking_type["warehouse_id"]
 
             # Loop over all subcontractors
             if i["type"] == "subcontract":
