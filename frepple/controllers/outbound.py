@@ -1449,12 +1449,14 @@ class exporter(object):
             )
 
             # Determine the location
-            # Extra logic for fulton to use the routes to find the warehouse of the operation
-            location = self.mfg_location            
+            # Extra logic for fulton find the manufacturing warehouse
+            location = None
             if i["picking_type_id"]:
                 picking_type = self.operation_types.get(i["picking_type_id"][0], None)
                 if picking_type and picking_type["warehouse_id"]:
-                    location =  picking_type["warehouse_id"]
+                    location = picking_type["warehouse_id"]
+            if not location:
+                continue
 
             # Loop over all subcontractors
             if i["type"] == "subcontract":
