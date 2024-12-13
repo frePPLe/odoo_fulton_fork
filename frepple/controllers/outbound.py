@@ -1439,6 +1439,7 @@ class exporter(object):
                 "sequence",
                 "code",
                 "picking_type_id",  # Extra Fulton
+                "max_mo_size",  # Extra Fulton
             ],
         ):
             product_template = self.product_templates.get(i["product_tmpl_id"][0], None)
@@ -1543,6 +1544,10 @@ class exporter(object):
                                 quoteattr(product_buf["name"]),
                                 quoteattr(location),
                             )
+
+                        # Extra fulton
+                        if i["max_mo_size"] and i["max_mo_size"] > 0:
+                            yield "<size_maximum>%s</size_maximum>\n" % i["max_mo_size"]
 
                         # Handle produced quantity of a bom
                         producedQty = self.convert_qty_uom(
@@ -1716,6 +1721,10 @@ class exporter(object):
                             quoteattr(product_buf["name"]),
                             quoteattr(location),
                         )
+
+                        # Extra fulton
+                        if i["max_mo_size"]:
+                             yield "<size_maximum>%s</size_maximum>\n" % i["max_mo_size"]
 
                         # Handle produced quantity of a bom
                         producedQty = (
