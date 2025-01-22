@@ -1427,6 +1427,7 @@ class exporter(object):
         # Loop over all bom records
         for i in self.generator.getData(
             "mrp.bom",
+            search=["|", ("code", "=", False), ("code", "!=", "MASTER")],
             fields=[
                 "product_qty",
                 "product_uom_id",
@@ -1724,7 +1725,7 @@ class exporter(object):
 
                         # Extra fulton
                         if i["max_mo_size"]:
-                             yield "<size_maximum>%s</size_maximum>\n" % i["max_mo_size"]
+                            yield "<size_maximum>%s</size_maximum>\n" % i["max_mo_size"]
 
                         # Handle produced quantity of a bom
                         producedQty = (
