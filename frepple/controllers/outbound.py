@@ -2901,10 +2901,11 @@ class exporter(object):
                     i["product_uom"][0],
                     self.product_product[i["product_id"][0]]["template"],
                 )
-                yield '<buffer name=%s minimum="%f" maximum="%f"><item name=%s/><location name=%s/></buffer>\n' % (
+                yield '<buffer name=%s minimum="%f" maximum="%f" description="%f"><item name=%s/><location name=%s/></buffer>\n' % (
                     quoteattr("%s @ %s" % (item["name"], i["warehouse_id"][1])),
                     ((i["product_min_qty"] or 0) * uom_factor),
                     ((i["product_max_qty"] or 0) * uom_factor),
+                    ((i["qty_multiple"] or 0) * uom_factor),
                     quoteattr(item["name"]),
                     quoteattr(i["warehouse_id"][1]),
                 )
