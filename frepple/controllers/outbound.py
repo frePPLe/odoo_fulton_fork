@@ -977,7 +977,7 @@ class exporter(object):
             yield "<resourceskills>"
             yield '<resourceskill priority="%d"><resource name=%s/></resourceskill>' % (
                 i["priority"],
-                quoteattr(self.map_workcenters[i["workcenter"][0]]),
+                quoteattr(self.map_workcenters[i["workcenter"][0]]["name"]),
             )
             yield "</resourceskills>"
             yield "</skill>"
@@ -1011,6 +1011,8 @@ class exporter(object):
                 "time_efficiency",
                 "default_capacity",
                 "tool",
+                "post_operation_time",
+                "constrained",
             ],
         ):
             if first:
@@ -1035,8 +1037,8 @@ class exporter(object):
                     "calendar for %s" % (i["resource_id"][1],),
                 )
             )
-            self.map_workcenters[i["id"]] = name
-            yield '<resource name=%s maximum="%s" category="%s" subcategory="%s" efficiency="%s"><location name=%s/>%s%s</resource>\n' % (
+            self.map_workcenters[i["id"]] = i
+            yield '<resource name=%s maximum="%s" category="%s" subcategory="%s" constrained="%s" efficiency="%s"><location name=%s/>%s%s</resource>\n' % (
                 quoteattr(name),
                 i["default_capacity"],
                 i["id"],
@@ -1044,6 +1046,7 @@ class exporter(object):
                 # "tool" if i["tool"] else "",
                 # Use this line if the tool usage is proportional to the MO quantity
                 "tool per piece" if i["tool"] else "",
+                "true" if i["constrained"] else "false",
                 i["time_efficiency"],
                 quoteattr(self.mfg_location),
                 ("<owner name=%s/>" % quoteattr(owner[1])) if owner else "",
@@ -1725,7 +1728,9 @@ class exporter(object):
                                     j["time_cycle"],
                                     quoteattr(j["search_mode"]),
                                     quoteattr(
-                                        self.map_workcenters[j["workcenter_id"][0]]
+                                        self.map_workcenters[j["workcenter_id"][0]][
+                                            "name"
+                                        ]
                                     ),
                                     (
                                         ("<skill name=%s/>" % quoteattr(j["skill"][1]))
@@ -1752,7 +1757,7 @@ class exporter(object):
                                         quoteattr(
                                             self.map_workcenters[
                                                 secondary_workcenter["workcenter_id"][0]
-                                            ]
+                                            ]["name"]
                                         ),
                                         (
                                             (
@@ -1914,7 +1919,7 @@ class exporter(object):
                                         quoteattr(
                                             self.map_workcenters[
                                                 secondary_workcenter["workcenter_id"][0]
-                                            ]
+                                            ]["name"]
                                         ),
                                         (
                                             (
@@ -1929,6 +1934,13 @@ class exporter(object):
                                     )
                                 )
 
+                            # Pick up the post operation time from the operation or the work center
+                            post_operation_time = step.get("post_operation_time", None)
+                            if not post_operation_time:
+                                post_operation_time = self.map_workcenters[
+                                    step["workcenter_id"][0]
+                                ].get("post_operation_time", 0)
+
                             yield "<suboperation>" '<operation name=%s %spriority="%s" duration_per="%s" category=%s posttime="%s" xsi:type="operation_time_per">\n' "<location name=%s/>\n" '<loads><load quantity="%f" search=%s><resource name=%s/>%s</load>%s</loads>\n' % (
                                 quoteattr(name),
                                 (
@@ -1938,24 +1950,27 @@ class exporter(object):
                                 ),
                                 counter * 10,
                                 (
-                                    self.convert_float_time(step["time_cycle"] / workcenter_qty / 1440.0)
+                                    self.convert_float_time(
+                                        step["time_cycle"] / workcenter_qty / 1440.0
+                                    )
                                     if step["time_cycle"] and step["time_cycle"] > 0
                                     else "P0D"
                                 ),
                                 quoteattr(i["type"] or ""),
                                 (
                                     self.convert_float_time(
-                                        step["post_operation_time"], "hours"
+                                        post_operation_time, "hours"
                                     )
-                                    if step["post_operation_time"]
-                                    and step["post_operation_time"] > 0
+                                    if post_operation_time and post_operation_time > 0
                                     else "P0D"
                                 ),
                                 quoteattr(location),
                                 workcenter_qty,
                                 quoteattr(step["search_mode"]),
                                 quoteattr(
-                                    self.map_workcenters[step["workcenter_id"][0]]
+                                    self.map_workcenters[step["workcenter_id"][0]][
+                                        "name"
+                                    ]
                                 ),
                                 (
                                     ("<skill name=%s/>" % quoteattr(step["skill"][1]))
@@ -2708,8 +2723,10 @@ class exporter(object):
                         and wo.workcenter_id.id in self.map_workcenters
                         and wo.state not in ("done", "cancel")
                     ):
-                        loads[self.map_workcenters[wo.workcenter_id.id]] = (
-                            loads.get(self.map_workcenters[wo.workcenter_id.id], 0)
+                        loads[self.map_workcenters[wo.workcenter_id.id]["name"]] = (
+                            loads.get(
+                                self.map_workcenters[wo.workcenter_id.id]["name"], 0
+                            )
                             + time_left
                         )
                 if loads:
@@ -2803,13 +2820,15 @@ class exporter(object):
                     ):
                         # Only send a load definition if the bom specifies a parent pool
                         yield "<loads><load><resource name=%s/></load></loads>" % quoteattr(
-                            self.map_workcenters[wo.operation_id.workcenter_id.id]
+                            self.map_workcenters[wo.operation_id.workcenter_id.id][
+                                "name"
+                            ]
                         )
                     elif (
                         wo.workcenter_id and wo.workcenter_id.id in self.map_workcenters
                     ):
                         yield "<loads><load><resource name=%s/></load></loads>" % quoteattr(
-                            self.map_workcenters[wo.workcenter_id.id]
+                            self.map_workcenters[wo.workcenter_id.id]["name"]
                         )
                     if wo.operation_id:
                         for wo_sec in wo.secondary_workcenters:
@@ -2834,7 +2853,9 @@ class exporter(object):
                                         ),
                                         quoteattr(sec.search_mode),
                                         quoteattr(
-                                            self.map_workcenters[sec.workcenter_id.id]
+                                            self.map_workcenters[sec.workcenter_id.id][
+                                                "name"
+                                            ]
                                         ),
                                         (
                                             (
@@ -2904,7 +2925,7 @@ class exporter(object):
                         and wo.workcenter_id.id in self.map_workcenters
                     ):
                         yield "<loadplans><loadplan><resource name=%s/></loadplan></loadplans>" % quoteattr(
-                            self.map_workcenters[wo.workcenter_id.id]
+                            self.map_workcenters[wo.workcenter_id.id]["name"]
                         )
                     if wo.secondary_workcenters:
                         yield "<loadplans>"
@@ -2916,7 +2937,9 @@ class exporter(object):
                             ):
                                 yield "<loadplan><resource name=%s/></loadplan>" % (
                                     quoteattr(
-                                        self.map_workcenters[secondary.workcenter_id.id]
+                                        self.map_workcenters[
+                                            secondary.workcenter_id.id
+                                        ]["name"]
                                     ),
                                 )
                         yield "</loadplans>"
