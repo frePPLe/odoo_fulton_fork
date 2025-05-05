@@ -866,6 +866,39 @@ class exporter(object):
                     loc_object["warehouse_id"][0]
                 ]
 
+        # Fulton: extract internal transfer delays
+        # They are stored as a json string on the location model for creating item distributions in frepple.
+        tranfer_delays = {}
+        for i in self.generator.getData(
+            "stock.rule",
+            search=[("action", "=", "pull")],
+            fields=["location_dest_id", "location_src_id", "delay"],
+        ):
+            if (
+                not i["location_dest_id"]
+                or not i["location_src_id"]
+                or i["location_dest_id"][0] not in self.map_locations
+                or i["location_src_id"][0] not in self.map_locations
+                or self.map_locations[i["location_dest_id"][0]]
+                == self.map_locations[i["location_src_id"][0]]
+            ):
+                continue
+            if i["location_dest_id"][0] in tranfer_delays:
+                tranfer_delays[self.map_locations[i["location_dest_id"][0]]][
+                    self.map_locations[i["location_src_id"][0]]
+                ] = i["delay"]
+            else:
+                tranfer_delays[self.map_locations[i["location_dest_id"][0]]] = {
+                    self.map_locations[i["location_src_id"][0]]: i["delay"]
+                }
+        yield "<locations>\n"
+        for i, j in tranfer_delays.items():
+            yield "<location name=%s category=%s/>\n" % (
+                quoteattr(i),
+                quoteattr(json.dumps(j)),
+            )
+        yield "</locations>\n"
+
     def export_customers(self):
         """
         Generate a list of customers to frePPLe, based on the res.partner model.
