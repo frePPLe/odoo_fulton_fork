@@ -71,11 +71,21 @@ class Odoo_generator:
             search = []
         if fields is None:
             fields = []
+        else:
+            invalid_fields = [f for f in fields if f not in self.env[model]._fields]
+            if invalid_fields:
+                logger.warning(f"Unavailable fields {invalid_fields} in {model} model")
         if ids is not None:
             if object:
                 return self.env[model].browse(ids) if ids else []
             else:
-                return self.env[model].browse(ids).read(fields) if ids else []
+                return (
+                    self.env[model]
+                    .browse(ids)
+                    .read([f for f in fields if f in self.env[model]._fields])
+                    if ids
+                    else []
+                )
         if order:
             if object:
                 return self.env[model].search(
@@ -85,7 +95,7 @@ class Odoo_generator:
                 return (
                     self.env[model]
                     .search(search, order=order, limit=limit, offset=offset)
-                    .read(fields)
+                    .read([f for f in fields if f in self.env[model]._fields])
                 )
         else:
             if object:
@@ -94,7 +104,7 @@ class Odoo_generator:
                 return (
                     self.env[model]
                     .search(search, limit=limit, offset=offset)
-                    .read(fields)
+                    .read([f for f in fields if f in self.env[model]._fields])
                 )
 
 
@@ -215,19 +225,6 @@ class exporter(object):
         self.singlecompany = singlecompany
         self.delta = delta
         self.language = language
-        self.has_subcontracting = (
-            len(
-                self.generator.getData(
-                    "ir.module.module",
-                    search=[
-                        ("state", "=", "installed"),
-                        ("name", "=", "mrp_subcontracting"),
-                    ],
-                    fields=["id"],
-                )
-            )
-            > 0
-        )
         self.has_expiry = (
             len(
                 self.generator.getData(
@@ -1251,22 +1248,12 @@ class exporter(object):
             "sequence",
             "is_subcontractor",
         ]
-        try:
-            tmp = self.generator.getData(
-                "product.supplierinfo",
-                fields=supplierinfo_fields,
-                search=[("product_tmpl_id", "!=", False)],
-            )
-        except Exception:
-            # subcontracting module not installed
-            supplierinfo_fields.remove("is_subcontractor")
-            tmp = self.generator.getData(
-                "product.supplierinfo",
-                fields=supplierinfo_fields,
-                search=[("product_tmpl_id", "!=", False)],
-            )
         itemsuppliers = {}
-        for i in tmp:
+        for i in self.generator.getData(
+            "product.supplierinfo",
+            fields=supplierinfo_fields,
+            search=[("product_tmpl_id", "!=", False)],
+        ):
             if i["product_tmpl_id"][0] in itemsuppliers:
                 itemsuppliers[i["product_tmpl_id"][0]].append(i)
             else:
@@ -2429,7 +2416,7 @@ class exporter(object):
                         mv.id,
                         mv.purchase_line_id.id,
                     )
-                    if self.has_subcontracting and mv.is_subcontract:
+                    if getattr(mv, "is_subcontract", False):
                         # PO lines on a subcontracting BOM are mapped as a MO in frepple
                         for k in mv.move_orig_ids:
                             if k.production_id:
