@@ -3075,7 +3075,19 @@ class exporter(object):
                     """ % (
                         (quoteattr("SS for %s" % (name,))),
                         self.currentdate.strftime("%Y-%m-%dT%H:%M:%S"),
-                        (i["product_min_qty"] * uom_factor),
+                        (
+                            (
+                                i["product_min_qty"]
+                                + (
+                                    1
+                                    if i["qty_multiple"] == 1
+                                    and i["product_min_qty"] > 0
+                                    and i["product_max_qty"] > 0
+                                    else 0
+                                )
+                            )
+                            * uom_factor
+                        ),
                     )
                 if i["product_max_qty"] - i["product_min_qty"] > 0:
                     yield """
