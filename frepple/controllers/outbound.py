@@ -1492,10 +1492,11 @@ class exporter(object):
                 for subcontractor in subcontractors:
                     # Build operation. The operation can either be a summary operation or a detailed
                     # routing.
-                    operation = "%s @ %s %d" % (
+                    operation = "%s @ %s %d %d" % (
                         product_buf["code"] or product_buf["name"],
                         subcontractor.get("name", location),
                         i["id"],
+                        product_id,
                     )
                     if len(operation) > 300:
                         suffix = " @ %s %d" % (
