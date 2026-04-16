@@ -2572,11 +2572,12 @@ class exporter(object):
                 qty,
                 # In the "approved" status, frepple can still reschedule the MO in function of material and capacity
                 # In the "confirmed" status, frepple sees the MO as frozen and unchangeable
-                (
-                    "approved"
-                    if self.manage_work_orders or i.state in ("confirmed", "draft")
-                    else "confirmed"
-                ),
+                # (
+                #     "approved"
+                #     if self.manage_work_orders or i.state in ("confirmed", "draft")
+                #     else "confirmed"
+                # ),
+                "confirmed" # Fulton: export all as fixed/locked to frepple
             )
 
             # Collect move info
@@ -2810,7 +2811,8 @@ class exporter(object):
                     elif wo.state in ("done", "to_close", "cancel"):
                         state = "completed"
                     else:
-                        state = "approved"
+                        # state = "approved"
+                        state = "confirmed" # Fulton: export all as fixed/locked to frepple
                     try:
                         if wo.date_finished:
                             wo_date = ' end="%s"' % self.formatDateTime(
