@@ -3300,15 +3300,17 @@ class exporter(object):
                     operationplan = {
                         "ordertype": "MO",
                         "reference": i.name,
-                        (
-                            "start"  # Option 1: compute MO end date based on the start date
-                            if self.manage_work_orders or not enddate
-                            else "end"  # Option 2: compute MO start date based on the end date
-                        ): (
-                            startdate
-                            if self.manage_work_orders or not enddate
-                            else enddate
-                        ),
+                        # Standard code:
+                        # (
+                        #     "start"  # Option 1: compute MO end date based on the start date
+                        #     if self.manage_work_orders or not enddate
+                        #     else "end"  # Option 2: compute MO start date based on the end date
+                        # ): (
+                        #     startdate
+                        #     if self.manage_work_orders or not enddate
+                        #     else enddate
+                        # ),
+                        "start": startdate,  # Fulton
                         "quantity": qty,
                         "status": (
                             "approved"
@@ -3330,10 +3332,19 @@ class exporter(object):
                         i, "workorder_ids", None
                     ):
                         # There are no workorders on the manufacturing order (or we don't want to see them in frepple)
+                        # Fulton: also pass the manufacturing lead time of the item
+                        duration = (i.bom_id.produce_delay or 0) + (
+                            i.bom_id.days_to_prepare_mo or 0
+                        )
                         operation_json = {
                             "name": operation,
                             "category": type,
                             "type": "operation_fixed_time",
+                            "duration": (
+                                self.convert_float_time(duration)
+                                if duration > 0
+                                else "P0D"
+                            ),
                             "priority": 0,
                             "location": {"name": location},
                             "item": {"name": item["name"]},
