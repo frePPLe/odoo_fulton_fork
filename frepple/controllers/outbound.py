@@ -1501,12 +1501,10 @@ class exporter(object):
                     "sequence",
                     "code",
                     "product_qty_multiple",
+                    "picking_type_id",  # Extra Fulton
                 ],
             ):
                 try:
-                    # Determine the location
-                    location = self.mfg_location
-
                     product_template = self.product_templates.get(
                         i["product_tmpl_id"][0], None
                     )
@@ -1515,6 +1513,18 @@ class exporter(object):
                     uom_factor = self.convert_qty_uom(
                         1.0, i["product_uom_id"], i["product_tmpl_id"][0]
                     )
+
+                    # Determine the location
+                    # Extra logic for fulton find the manufacturing warehouse
+                    location = None
+                    if i["picking_type_id"]:
+                        picking_type = self.operation_types.get(
+                            i["picking_type_id"][0], None
+                        )
+                        if picking_type and picking_type["warehouse_id"]:
+                            location = picking_type["warehouse_id"]
+                    if not location:
+                        continue
 
                     # Loop over all subcontractors
                     if i["type"] == "subcontract":
