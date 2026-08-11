@@ -3312,12 +3312,16 @@ class exporter(object):
                         # ),
                         "start": startdate,  # Fulton
                         "quantity": qty,
-                        "status": (
-                            "approved"
-                            if self.manage_work_orders
-                            or i.state in ("confirmed", "draft")
-                            else "confirmed"
-                        ),
+                        # In the "approved" status, frepple can still reschedule the MO in function of material and capacity
+                        # In the "confirmed" status, frepple sees the MO as frozen and unchangeable
+                        # Standard code:
+                        # "status": (
+                        #     "approved"
+                        #     if self.manage_work_orders
+                        #     or i.state in ("confirmed", "draft")
+                        #     else "confirmed"
+                        # ),
+                        "status": "confirmed",  # Fulton: export all as fixed/locked to frepple
                     }
                     if batch:
                         operationplan["batch"] = batch
@@ -3616,7 +3620,8 @@ class exporter(object):
                             elif wo.state in ("done", "to_close", "cancel"):
                                 state = "completed"
                             else:
-                                state = "approved"
+                                # state = "approved"
+                                state = "confirmed"  # Fulton: export all as fixed/locked to frepple
                             try:
                                 if wo.date_finished:
                                     wo_opplan_json = {
