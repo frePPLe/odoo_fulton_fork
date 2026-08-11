@@ -1502,6 +1502,7 @@ class exporter(object):
                     "code",
                     "product_qty_multiple",
                     "picking_type_id",  # Extra Fulton
+                    "max_mo_size",  # Extra Fulton
                 ],
             ):
                 try:
@@ -1625,6 +1626,10 @@ class exporter(object):
                                     }
                                     if i["code"]:
                                         operation_json["description"] = i["code"]
+
+                                # Extra fulton
+                                if i["max_mo_size"] and i["max_mo_size"] > 0:
+                                    operation_json["size_maximum"] = i["max_mo_size"]
 
                                 # Handle multiple quantity of a bom (frepple custom extra field)
                                 if i.get("product_qty_multiple", 0) > 0:
@@ -1828,6 +1833,10 @@ class exporter(object):
 
                                 if i["code"]:
                                     operation_json["description"] = i["code"]
+
+                                # Extra fulton
+                                if i["max_mo_size"]:
+                                    operation_json["size_maximum"] = i["max_mo_size"]
 
                                 # Handle multiple quantity of a bom (frepple custom extra field)
                                 if i.get("product_qty_multiple", 0) > 0:
