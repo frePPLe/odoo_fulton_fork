@@ -3737,6 +3737,8 @@ class exporter(object):
                                 "name": "%s @ %s" % (item["name"], warehouse),
                                 "minimum": (i["product_min_qty"] or 0) * uom_factor,
                                 "maximum": (i["product_max_qty"] or 0) * uom_factor,
+                                # Added for Fulton
+                                "description": (i["qty_multiple"] or 0) * uom_factor,
                                 "item": {"item": {"name": item["name"]}},
                                 "location": {
                                     "location": {"name": i["warehouse_id"][1]}
