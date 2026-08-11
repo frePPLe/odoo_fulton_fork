@@ -2489,8 +2489,8 @@ class exporter(object):
                         if self.delta < 999:
                             continue
                     if state in ("draft", "sent"):
-                        # status = "inquiry"  # Inquiries don't reserve capacity and materials
-                        status = "quote"  # Quotes do reserve capacity and materials
+                        status = "inquiry"  # Inquiries don't reserve capacity and materials
+                        # status = "quote"  # Quotes do reserve capacity and materials
                         qty = self.convert_qty_uom(
                             i["product_uom_qty"],
                             i["product_uom_id"],
