@@ -3791,8 +3791,19 @@ class exporter(object):
                                                 "%Y-%m-%dT%H:%M:%S"
                                             ),
                                             "end": "2030-12-31T00:00:00",
+                                            # Fulton: special case when qty_multiple is 1
                                             "value": (
-                                                i["product_min_qty"] * uom_factor
+                                                (
+                                                    i["product_min_qty"]
+                                                    + (
+                                                        1
+                                                        if i["qty_multiple"] == 1
+                                                        and i["product_min_qty"] > 0
+                                                        and i["product_max_qty"] > 0
+                                                        else 0
+                                                    )
+                                                )
+                                                * uom_factor
                                             ),
                                             "days": "127",
                                             "priority": "998",
