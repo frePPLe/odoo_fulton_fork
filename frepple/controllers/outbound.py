@@ -757,6 +757,9 @@ class exporter(object):
                 "stock.warehouse",
                 fields=["name", "code"],
             ):
+                # Added for Fulton: skip the service truck warehouses
+                if i["name"] and "service truck" in i["name"].lower():
+                    continue
                 location = {
                     "name": i["code"],
                     "description": i["name"],
@@ -2083,6 +2086,12 @@ class exporter(object):
         """
         try:
 
+            # Added for Fulton: odoo 19 dropped sale.order.analytic_account_id,
+            # only read the field when another module still defines it
+            has_analytic_account = (
+                "analytic_account_id" in self.generator.env["sale.order"]._fields
+            )
+
             # Get all move ids
             # We only read the open ones
 
@@ -2174,7 +2183,9 @@ class exporter(object):
                             "date_order",
                             "picking_policy",
                             "warehouse_id",
-                        ],
+                        ]
+                        # Added for Fulton
+                        + (["analytic_account_id"] if has_analytic_account else []),
                     )
                 }
 
@@ -2299,6 +2310,14 @@ class exporter(object):
                                                 "type": "demand_group",
                                             },
                                         }
+                                        if j.get("analytic_account_id"):
+                                            # Added for Fulton
+                                            demand["stringproperty"] = [
+                                                {
+                                                    "name": "analytic_account",
+                                                    "value": j["analytic_account_id"][1],
+                                                }
+                                            ]
                                         yield json.dumps(demand) + ",\n"
                                 # We are done with this line, move to the next one
                                 continue
@@ -2348,6 +2367,14 @@ class exporter(object):
                                 "type": "demand_group",
                             },
                         }
+                        if j.get("analytic_account_id"):
+                            # Added for Fulton
+                            demand["stringproperty"] = [
+                                {
+                                    "name": "analytic_account",
+                                    "value": j["analytic_account_id"][1],
+                                }
+                            ]
                         yield json.dumps(demand) + ",\n"
                     except Exception as e:
                         yield from self.flagException(f"exporting sales order {i}", e)
@@ -2388,7 +2415,9 @@ class exporter(object):
                         "date_order",
                         "picking_policy",
                         "warehouse_id",
-                    ],
+                    ]
+                    # Added for Fulton
+                    + (["analytic_account_id"] if has_analytic_account else []),
                 )
             }
 
@@ -2528,6 +2557,14 @@ class exporter(object):
                                             "type": "demand_group",
                                         },
                                     }
+                                    if j.get("analytic_account_id"):
+                                        # Added for Fulton
+                                        demand["stringproperty"] = [
+                                            {
+                                                "name": "analytic_account",
+                                                "value": j["analytic_account_id"][1],
+                                            }
+                                        ]
                                     yield json.dumps(demand) + ",\n"
                             # We are done with this line, move to the next one
                             continue
@@ -2591,6 +2628,14 @@ class exporter(object):
                             "type": "demand_group",
                         },
                     }
+                    if j.get("analytic_account_id"):
+                        # Added for Fulton
+                        demand["stringproperty"] = [
+                            {
+                                "name": "analytic_account",
+                                "value": j["analytic_account_id"][1],
+                            }
+                        ]
                     yield json.dumps(demand) + ",\n"
                 except Exception as e:
                     yield from self.flagException(f"exporting sales order {i}", e)
