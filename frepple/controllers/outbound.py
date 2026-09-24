@@ -211,10 +211,11 @@ class exporter(object):
     def run(self):
         # Check if we manage by work orders or manufacturing orders.
         self.manage_work_orders = False
-        for rec in self.generator.getData(
-            "ir.model", search=[("model", "=", "mrp.workorder")], fields=["name"]
-        ):
-            self.manage_work_orders = True
+        # Fulton will plan at the MO level only in frepple. Odoo schedules the work orders.
+        # for rec in self.generator.getData(
+        #     "ir.model", search=[("model", "=", "mrp.workorder")], fields=["name"]
+        # ):
+        #     self.manage_work_orders = True
 
         # Load some auxiliary data in memory
         yield from self.load_company()
@@ -757,6 +758,9 @@ class exporter(object):
                 "stock.warehouse",
                 fields=["name", "code"],
             ):
+                # Added for Fulton: skip the service truck warehouses
+                if i["name"] and "service truck" in i["name"].lower():
+                    continue
                 location = {
                     "name": i["code"],
                     "description": i["name"],
@@ -1484,6 +1488,7 @@ class exporter(object):
             # Loop over all bom records
             for i in self.generator.getData(
                 "mrp.bom",
+                search=["|", ("code", "=", False), ("code", "!=", "MASTER")],
                 fields=[
                     "product_qty",
                     "product_uom_id",
@@ -1497,12 +1502,11 @@ class exporter(object):
                     "code",
                     "product_qty_multiple",
                     "scrap_rate",
+                    "picking_type_id",  # Extra Fulton
+                    "max_mo_size",  # Extra Fulton
                 ],
             ):
                 try:
-                    # Determine the location
-                    location = self.mfg_location
-
                     product_template = self.product_templates.get(
                         i["product_tmpl_id"][0], None
                     )
@@ -1511,6 +1515,18 @@ class exporter(object):
                     uom_factor = self.convert_qty_uom(
                         1.0, i["product_uom_id"], i["product_tmpl_id"][0]
                     )
+
+                    # Determine the location
+                    # Extra logic for fulton find the manufacturing warehouse
+                    location = None
+                    if i["picking_type_id"]:
+                        picking_type = self.operation_types.get(
+                            i["picking_type_id"][0], None
+                        )
+                        if picking_type and picking_type["warehouse_id"]:
+                            location = picking_type["warehouse_id"]
+                    if not location:
+                        continue
 
                     # Loop over all subcontractors
                     if i["type"] == "subcontract":
@@ -1611,6 +1627,10 @@ class exporter(object):
                                     }
                                     if i["code"]:
                                         operation_json["description"] = i["code"]
+
+                                # Extra fulton
+                                if i["max_mo_size"] and i["max_mo_size"] > 0:
+                                    operation_json["size_maximum"] = i["max_mo_size"]
 
                                 # Handle multiple quantity of a bom (frepple custom extra field)
                                 if i.get("product_qty_multiple", 0) > 0:
@@ -1824,6 +1844,10 @@ class exporter(object):
 
                                 if i["code"]:
                                     operation_json["description"] = i["code"]
+
+                                # Extra fulton
+                                if i["max_mo_size"]:
+                                    operation_json["size_maximum"] = i["max_mo_size"]
 
                                 # Handle multiple quantity of a bom (frepple custom extra field)
                                 if i.get("product_qty_multiple", 0) > 0:
@@ -2108,6 +2132,12 @@ class exporter(object):
         """
         try:
 
+            # Added for Fulton: odoo 19 dropped sale.order.analytic_account_id,
+            # only read the field when another module still defines it
+            has_analytic_account = (
+                "analytic_account_id" in self.generator.env["sale.order"]._fields
+            )
+
             # Get all move ids
             # We only read the open ones
 
@@ -2199,7 +2229,9 @@ class exporter(object):
                             "date_order",
                             "picking_policy",
                             "warehouse_id",
-                        ],
+                        ]
+                        # Added for Fulton
+                        + (["analytic_account_id"] if has_analytic_account else []),
                     )
                 }
 
@@ -2324,6 +2356,14 @@ class exporter(object):
                                                 "type": "demand_group",
                                             },
                                         }
+                                        if j.get("analytic_account_id"):
+                                            # Added for Fulton
+                                            demand["stringproperty"] = [
+                                                {
+                                                    "name": "analytic_account",
+                                                    "value": j["analytic_account_id"][1],
+                                                }
+                                            ]
                                         yield json.dumps(demand) + ",\n"
                                 # We are done with this line, move to the next one
                                 continue
@@ -2373,6 +2413,14 @@ class exporter(object):
                                 "type": "demand_group",
                             },
                         }
+                        if j.get("analytic_account_id"):
+                            # Added for Fulton
+                            demand["stringproperty"] = [
+                                {
+                                    "name": "analytic_account",
+                                    "value": j["analytic_account_id"][1],
+                                }
+                            ]
                         yield json.dumps(demand) + ",\n"
                     except Exception as e:
                         yield from self.flagException(f"exporting sales order {i}", e)
@@ -2413,7 +2461,9 @@ class exporter(object):
                         "date_order",
                         "picking_policy",
                         "warehouse_id",
-                    ],
+                    ]
+                    # Added for Fulton
+                    + (["analytic_account_id"] if has_analytic_account else []),
                 )
             }
 
@@ -2464,8 +2514,8 @@ class exporter(object):
                         if self.delta < 999:
                             continue
                     if state in ("draft", "sent"):
-                        # status = "inquiry"  # Inquiries don't reserve capacity and materials
-                        status = "quote"  # Quotes do reserve capacity and materials
+                        status = "inquiry"  # Inquiries don't reserve capacity and materials
+                        # status = "quote"  # Quotes do reserve capacity and materials
                         qty = self.convert_qty_uom(
                             i["product_uom_qty"],
                             i["product_uom_id"],
@@ -2553,6 +2603,14 @@ class exporter(object):
                                             "type": "demand_group",
                                         },
                                     }
+                                    if j.get("analytic_account_id"):
+                                        # Added for Fulton
+                                        demand["stringproperty"] = [
+                                            {
+                                                "name": "analytic_account",
+                                                "value": j["analytic_account_id"][1],
+                                            }
+                                        ]
                                     yield json.dumps(demand) + ",\n"
                             # We are done with this line, move to the next one
                             continue
@@ -2616,6 +2674,14 @@ class exporter(object):
                             "type": "demand_group",
                         },
                     }
+                    if j.get("analytic_account_id"):
+                        # Added for Fulton
+                        demand["stringproperty"] = [
+                            {
+                                "name": "analytic_account",
+                                "value": j["analytic_account_id"][1],
+                            }
+                        ]
                     yield json.dumps(demand) + ",\n"
                 except Exception as e:
                     yield from self.flagException(f"exporting sales order {i}", e)
@@ -3271,22 +3337,28 @@ class exporter(object):
                     operationplan = {
                         "ordertype": "MO",
                         "reference": i.name,
-                        (
-                            "start"  # Option 1: compute MO end date based on the start date
-                            if self.manage_work_orders or not enddate
-                            else "end"  # Option 2: compute MO start date based on the end date
-                        ): (
-                            startdate
-                            if self.manage_work_orders or not enddate
-                            else enddate
-                        ),
+                        # Standard code:
+                        # (
+                        #     "start"  # Option 1: compute MO end date based on the start date
+                        #     if self.manage_work_orders or not enddate
+                        #     else "end"  # Option 2: compute MO start date based on the end date
+                        # ): (
+                        #     startdate
+                        #     if self.manage_work_orders or not enddate
+                        #     else enddate
+                        # ),
+                        "start": startdate,  # Fulton
                         "quantity": qty,
-                        "status": (
-                            "approved"
-                            if self.manage_work_orders
-                            or i.state in ("confirmed", "draft")
-                            else "confirmed"
-                        ),
+                        # In the "approved" status, frepple can still reschedule the MO in function of material and capacity
+                        # In the "confirmed" status, frepple sees the MO as frozen and unchangeable
+                        # Standard code:
+                        # "status": (
+                        #     "approved"
+                        #     if self.manage_work_orders
+                        #     or i.state in ("confirmed", "draft")
+                        #     else "confirmed"
+                        # ),
+                        "status": "confirmed",  # Fulton: export all as fixed/locked to frepple
                     }
                     if batch:
                         operationplan["batch"] = batch
@@ -3301,10 +3373,19 @@ class exporter(object):
                         i, "workorder_ids", None
                     ):
                         # There are no workorders on the manufacturing order (or we don't want to see them in frepple)
+                        # Fulton: also pass the manufacturing lead time of the item
+                        duration = (i.bom_id.produce_delay or 0) + (
+                            i.bom_id.days_to_prepare_mo or 0
+                        )
                         operation_json = {
                             "name": operation,
                             "category": type,
                             "type": "operation_fixed_time",
+                            "duration": (
+                                self.convert_float_time(duration)
+                                if duration > 0
+                                else "P0D"
+                            ),
                             "priority": 0,
                             "location": {"name": location},
                             "item": {"name": item["name"]},
@@ -3592,7 +3673,8 @@ class exporter(object):
                             elif wo.state in ("done", "to_close", "cancel"):
                                 state = "completed"
                             else:
-                                state = "approved"
+                                # state = "approved"
+                                state = "confirmed"  # Fulton: export all as fixed/locked to frepple
                             try:
                                 if wo.date_finished:
                                     wo_opplan_json = {
@@ -3678,7 +3760,7 @@ class exporter(object):
         stock.warehouse.orderpoint.product.name -> buffer.item
         convert stock.warehouse.orderpoint.product_min_qty -> buffer.mininventory
         convert stock.warehouse.orderpoint.product_max_qty -> buffer.maxinventory
-        // unmapped: stock.warehouse.orderpoint.replenishment_uom_id as multiple
+        convert stock.warehouse.orderpoint.qty_multiple -> buffer->size_multiple
         """
         try:
             # Keeping with the original reorderpoint mapping now
@@ -3697,6 +3779,7 @@ class exporter(object):
                     "product_min_qty",
                     "product_max_qty",
                     "product_uom",
+                    "qty_multiple",  # Extra Fulton
                 ],
             ):
                 item = self.product_product.get(
@@ -3719,18 +3802,28 @@ class exporter(object):
                 reorder = (i["product_max_qty"] or 0) - (
                     i["product_min_qty"] or 0
                 ) * uom_factor
+                # Fulton: special case when qty_multiple is 1
+                extra_qty = (
+                    1
+                    if i["qty_multiple"] == 1
+                    and (i["product_min_qty"] or 0) > 0
+                    and (i["product_max_qty"] or 0) > 0
+                    else 0
+                )
                 existing = orderpoints_by_warehouse_product.get(
-                    (item["name"], warehouse), (0, 0)
+                    (item["name"], warehouse), (0, 0, 0)
                 )
                 orderpoints_by_warehouse_product[(item["name"], warehouse)] = (
                     existing[0]
                     + (
-                        i["product_min_qty"]
+                        i["product_min_qty"] + extra_qty
                         if i["product_min_qty"] and i["product_min_qty"] > 0
                         else 0
                     )
                     * uom_factor,
                     reorder if reorder > existing[1] and reorder > 0 else existing[1],
+                    # Added for Fulton: qty_multiple is exported as the buffer description
+                    max(existing[2], (i["qty_multiple"] or 0) * uom_factor),
                 )
 
             if has_buffer_max:
@@ -3738,6 +3831,7 @@ class exporter(object):
                 for (item, warehouse), (
                     ss,
                     roq,
+                    multiple,
                 ) in orderpoints_by_warehouse_product.items():
                     try:
                         yield json.dumps(
@@ -3745,6 +3839,8 @@ class exporter(object):
                                 "name": "%s @ %s" % (item, warehouse),
                                 "minimum": ss,
                                 "maximum": roq,
+                                # Added for Fulton
+                                "description": multiple,
                                 "item": {"name": item},
                                 "location": {"name": warehouse},
                             }
@@ -3757,6 +3853,7 @@ class exporter(object):
                 for (item, warehouse), (
                     ss,
                     roq,
+                    multiple,
                 ) in orderpoints_by_warehouse_product.items():
                     try:
                         if ss:
@@ -3770,6 +3867,8 @@ class exporter(object):
                                                 "%Y-%m-%dT%H:%M:%S"
                                             ),
                                             "end": "2030-12-31T00:00:00",
+                                            # Fulton: ss already includes the
+                                            # qty_multiple == 1 special case
                                             "value": ss,
                                             "days": "127",
                                             "priority": "998",
