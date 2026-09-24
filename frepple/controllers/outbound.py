@@ -1501,6 +1501,7 @@ class exporter(object):
                     "sequence",
                     "code",
                     "product_qty_multiple",
+                    "scrap_rate",
                     "picking_type_id",  # Extra Fulton
                     "max_mo_size",  # Extra Fulton
                 ],
@@ -1653,6 +1654,16 @@ class exporter(object):
                                     operation_json["size_minimum"] = producedQty
 
                                 operation_json["flows"] = []
+
+                                # We need a producing flow if there is a scrap rate
+                                if i["scrap_rate"] and 0.0 <= i["scrap_rate"] < 1.0:
+                                    operation_json["flows"].append(
+                                        {
+                                            "type": "flow_end",
+                                            "quantity": 1 - i["scrap_rate"],
+                                            "item": {"name": product_buf["name"]},
+                                        }
+                                    )
 
                                 # Build consuming flows.
                                 # If the same component is consumed multiple times in the same BOM
@@ -2046,6 +2057,20 @@ class exporter(object):
                                         {"operation": suboperation_json}
                                     )
                                     suboperation_json["flows"] = []
+
+                                    if (
+                                        step == steplist[-1]
+                                        and i["scrap_rate"]
+                                        and 0.0 <= i["scrap_rate"] < 1.0
+                                    ):
+                                        suboperation_json["flows"].append(
+                                            {
+                                                "type": "flow_end",
+                                                "quantity": 1 - i["scrap_rate"],
+                                                "item": {"name": product_buf["name"]},
+                                            }
+                                        )
+
                                     for j in fl.values():
                                         if j["qty"] > 0 and (
                                             (
@@ -2856,7 +2881,7 @@ class exporter(object):
                                     end = datetime.fromisoformat(end)
                                 except Exception:
                                     end = None
-                            if not start or not end:
+                            if not end:
                                 continue
 
                             supplier = self.map_suppliers.get(j.partner_id.id)
@@ -2882,7 +2907,9 @@ class exporter(object):
                             if not supplier:
                                 continue
 
-                            start = self.formatDateTime(start if start < end else end)
+                            start = self.formatDateTime(
+                                start if start and start < end else end
+                            )
                             end = self.formatDateTime(end)
 
                             # Compute the quantity that we still need to receive
@@ -3050,11 +3077,21 @@ class exporter(object):
                         if i.product_qty > i.qty_received:
                             start = j.date_order
                             if not isinstance(start, datetime):
-                                start = datetime.fromisoformat(start)
+                                try:
+                                    start = datetime.fromisoformat(start)
+                                except Exception:
+                                    start = None
                             end = i.date_planned
                             if not isinstance(end, datetime):
-                                end = datetime.fromisoformat(end)
-                            start = self.formatDateTime(start if start < end else end)
+                                try:
+                                    end = datetime.fromisoformat(end)
+                                except Exception:
+                                    end = None
+                            if not end:
+                                continue
+                            start = self.formatDateTime(
+                                start if start and start < end else end
+                            )
                             end = self.formatDateTime(end)
                             qty = self.convert_qty_uom(
                                 i.product_qty - i.qty_received,
@@ -3392,13 +3429,19 @@ class exporter(object):
                                     "item": {"name": key},
                                 }
                             )
-                        operation_json["flows"].append(
-                            {
-                                "type": "flow_end",
-                                "quantity": 1,
-                                "item": {"name": item["name"]},
-                            }
-                        )
+                        if (
+                            i.bom_id
+                            and i.bom_id.scrap_rate
+                            and 0.0 <= i.bom_id.scrap_rate < 1.0
+                        ):
+                            operation_json["flows"].append(
+                                {
+                                    "type": "flow_end",
+                                    "quantity": 1 - i.bom_id.scrap_rate,
+                                    "item": {"name": item["name"]},
+                                }
+                            )
+
                         # Pick up work center loading of all work orders
                         loads = {}
                         for wo in getattr(i, "workorder_ids", []):
@@ -3501,8 +3544,10 @@ class exporter(object):
                                     # Consumption at the last step
                                     if wo.id != i.workorder_ids[-1].id:
                                         continue
-                                item = self.product_product.get(mv.product_id.id, None)
-                                if not item or mv.state in ("done", "cancelled"):
+                                material = self.product_product.get(
+                                    mv.product_id.id, None
+                                )
+                                if not material or mv.state in ("done", "cancelled"):
                                     continue
                                 default_uom = mv.product_id.uom_id
                                 qty_flow = mv.product_uom._compute_quantity(
@@ -3521,8 +3566,8 @@ class exporter(object):
                                             l.quantity, default_uom
                                         )
                                 if qty_flow > 0:
-                                    operation_materials[item["name"]] = (
-                                        operation_materials.get(item["name"], 0)
+                                    operation_materials[material["name"]] = (
+                                        operation_materials.get(material["name"], 0)
                                         + (-qty_flow / qty)
                                     )
                             for key, val in operation_materials.items():
@@ -3531,6 +3576,14 @@ class exporter(object):
                                         "type": "flow_start",
                                         "quantity": val,
                                         "item": {"name": key},
+                                    }
+                                )
+                            if wo == i.workorder_ids[-1] and i.bom_id.scrap_rate:
+                                suboperation_json["operation"]["flows"].append(
+                                    {
+                                        "type": "flow_end",
+                                        "quantity": 1 - i.bom_id.scrap_rate,
+                                        "item": {"name": item["name"]},
                                     }
                                 )
                             if (
@@ -3717,48 +3770,79 @@ class exporter(object):
             #     has_buffer_max = False
             has_buffer_max = False
 
+            orderpoints_by_warehouse_product = {}
+            for i in self.generator.getData(
+                "stock.warehouse.orderpoint",
+                fields=[
+                    "warehouse_id",
+                    "product_id",
+                    "product_min_qty",
+                    "product_max_qty",
+                    "product_uom",
+                    "qty_multiple",  # Extra Fulton
+                ],
+            ):
+                item = self.product_product.get(
+                    i["product_id"] and i["product_id"][0] or None, None
+                )
+                if not item:
+                    continue
+                warehouse = (
+                    self.warehouses.get(i["warehouse_id"][0] or None, None)
+                    if i["warehouse_id"]
+                    else None
+                )
+                if not warehouse:
+                    continue
+                uom_factor = self.convert_qty_uom(
+                    1.0,
+                    i["product_uom"][0],
+                    item["template"],
+                )
+                reorder = (i["product_max_qty"] or 0) - (
+                    i["product_min_qty"] or 0
+                ) * uom_factor
+                # Fulton: special case when qty_multiple is 1
+                extra_qty = (
+                    1
+                    if i["qty_multiple"] == 1
+                    and (i["product_min_qty"] or 0) > 0
+                    and (i["product_max_qty"] or 0) > 0
+                    else 0
+                )
+                existing = orderpoints_by_warehouse_product.get(
+                    (item["name"], warehouse), (0, 0, 0)
+                )
+                orderpoints_by_warehouse_product[(item["name"], warehouse)] = (
+                    existing[0]
+                    + (
+                        i["product_min_qty"] + extra_qty
+                        if i["product_min_qty"] and i["product_min_qty"] > 0
+                        else 0
+                    )
+                    * uom_factor,
+                    reorder if reorder > existing[1] and reorder > 0 else existing[1],
+                    # Added for Fulton: qty_multiple is exported as the buffer description
+                    max(existing[2], (i["qty_multiple"] or 0) * uom_factor),
+                )
+
             if has_buffer_max:
                 # frepple >= 9.0 has native support for buffers with a min and max level
-                for i in self.generator.getData(
-                    "stock.warehouse.orderpoint",
-                    fields=[
-                        "warehouse_id",
-                        "product_id",
-                        "product_min_qty",
-                        "product_max_qty",
-                        "product_uom",
-                        "qty_multiple",
-                    ],
-                ):
+                for (item, warehouse), (
+                    ss,
+                    roq,
+                    multiple,
+                ) in orderpoints_by_warehouse_product.items():
                     try:
-                        item = self.product_product.get(
-                            i["product_id"] and i["product_id"][0] or 0, None
-                        )
-                        if not item:
-                            continue
-                        warehouse = (
-                            self.warehouses.get(i["warehouse_id"][0])
-                            if i["warehouse_id"]
-                            else None
-                        )
-                        if not warehouse:
-                            continue
-                        uom_factor = self.convert_qty_uom(
-                            1.0,
-                            i["product_uom"][0],
-                            self.product_product[i["product_id"][0]]["template"],
-                        )
                         yield json.dumps(
                             {
-                                "name": "%s @ %s" % (item["name"], warehouse),
-                                "minimum": (i["product_min_qty"] or 0) * uom_factor,
-                                "maximum": (i["product_max_qty"] or 0) * uom_factor,
+                                "name": "%s @ %s" % (item, warehouse),
+                                "minimum": ss,
+                                "maximum": roq,
                                 # Added for Fulton
-                                "description": (i["qty_multiple"] or 0) * uom_factor,
-                                "item": {"item": {"name": item["name"]}},
-                                "location": {
-                                    "location": {"name": i["warehouse_id"][1]}
-                                },
+                                "description": multiple,
+                                "item": {"name": item},
+                                "location": {"name": warehouse},
                             }
                         ) + ",\n"
                     except Exception as e:
@@ -3766,40 +3850,16 @@ class exporter(object):
                             f"exporting reordering rule {i}", e
                         )
             else:
-                for i in self.generator.getData(
-                    "stock.warehouse.orderpoint",
-                    fields=[
-                        "warehouse_id",
-                        "product_id",
-                        "product_min_qty",
-                        "product_max_qty",
-                        "product_uom",
-                        "qty_multiple",
-                    ],
-                ):
+                for (item, warehouse), (
+                    ss,
+                    roq,
+                    multiple,
+                ) in orderpoints_by_warehouse_product.items():
                     try:
-                        item = self.product_product.get(
-                            i["product_id"] and i["product_id"][0] or 0, None
-                        )
-                        if not item:
-                            continue
-                        warehouse = (
-                            self.warehouses.get(i["warehouse_id"][0])
-                            if i["warehouse_id"]
-                            else None
-                        )
-                        if not warehouse:
-                            continue
-                        uom_factor = self.convert_qty_uom(
-                            1.0,
-                            i["product_uom"][0],
-                            self.product_product[i["product_id"][0]]["template"],
-                        )
-                        name = "%s @ %s" % (item["name"], warehouse)
-                        if i["product_min_qty"]:
+                        if ss:
                             yield json.dumps(
                                 {
-                                    "name": "SS for %s" % (name,),
+                                    "name": "SS for %s @ %s" % (item, warehouse),
                                     "default": 0,
                                     "buckets": [
                                         {
@@ -3807,20 +3867,9 @@ class exporter(object):
                                                 "%Y-%m-%dT%H:%M:%S"
                                             ),
                                             "end": "2030-12-31T00:00:00",
-                                            # Fulton: special case when qty_multiple is 1
-                                            "value": (
-                                                (
-                                                    i["product_min_qty"]
-                                                    + (
-                                                        1
-                                                        if i["qty_multiple"] == 1
-                                                        and i["product_min_qty"] > 0
-                                                        and i["product_max_qty"] > 0
-                                                        else 0
-                                                    )
-                                                )
-                                                * uom_factor
-                                            ),
+                                            # Fulton: ss already includes the
+                                            # qty_multiple == 1 special case
+                                            "value": ss,
                                             "days": "127",
                                             "priority": "998",
                                             "starttime": 0,
@@ -3829,10 +3878,10 @@ class exporter(object):
                                     ],
                                 }
                             ) + ",\n"
-                        if i["product_max_qty"] - i["product_min_qty"] > 0:
+                        if roq:
                             yield json.dumps(
                                 {
-                                    "name": "ROQ for %s" % (name,),
+                                    "name": "ROQ for %s @ %s" % (item, warehouse),
                                     "default": 0,
                                     "buckets": [
                                         {
@@ -3840,13 +3889,7 @@ class exporter(object):
                                                 "%Y-%m-%dT%H:%M:%S"
                                             ),
                                             "end": "2030-12-31T00:00:00",
-                                            "value": (
-                                                (
-                                                    i["product_max_qty"]
-                                                    - i["product_min_qty"]
-                                                )
-                                                * uom_factor
-                                            ),
+                                            "value": roq,
                                             "days": "127",
                                             "priority": "998",
                                             "starttime": 0,
